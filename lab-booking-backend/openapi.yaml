@@ -1,0 +1,454 @@
+openapi: "3.0.3"
+info:
+  title: INES Lab Booking API
+  description: |
+    RESTful API for the INES Lab Booking System.
+    Supports three roles: student, lecturer, and lab-coordinator.
+  version: "1.0.0"
+  contact:
+    name: INES-Ruhengeri
+    url: https://www.ines.ac.rw
+    email: info@ines.ac.rw
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+  - url: https://api.ines.ac.rw/v1
+    description: Production (future)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from /auth/login
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        statusCode:
+          type: integer
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    ResponseEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          nullable: true
+        error:
+          $ref: '#/components/schemas/Error'
+          nullable: true
+        meta:
+          type: object
+          properties:
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+          nullable: true
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+        hasMore:
+          type: boolean
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [student, lecturer, lab-coordinator]
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: student@ines.ac.rw
+        password:
+          type: string
+          example: password123
+
+    LoginResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+
+    Lab:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        room:
+          type: string
+        capacity:
+          type: integer
+        status:
+          type: string
+          enum: [available, occupied, maintenance]
+        description:
+          type: string
+        equipment_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Equipment:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: integer
+        condition:
+          type: string
+          enum: [good, fair, poor, broken]
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        lab_id:
+          type: integer
+        lab_name:
+          type: string
+        lab_room:
+          type: string
+        booking_date:
+          type: string
+          format: date
+        time_slot:
+          type: string
+        student_count:
+          type: integer
+        purpose:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        rejection_reason:
+          type: string
+          nullable: true
+        user_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateBookingRequest:
+      type: object
+      required: [lab_id, booking_date, time_slot, student_count, purpose]
+      properties:
+        lab_id:
+          type: integer
+        booking_date:
+          type: string
+          format: date
+          example: "2026-06-03"
+        time_slot:
+          type: string
+          enum: [08:00-10:00, 10:00-12:00, 13:00-15:00, 15:00-17:00]
+        student_count:
+          type: integer
+        purpose:
+          type: string
+
+    ApproveRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+        rejection_reason:
+          type: string
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        "200":
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseEnvelope'
+
+  /api/v1/auth/login:
+    post:
+      summary: Login with email and password
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+        "401":
+          description: Invalid credentials
+        "429":
+          description: Rate limit exceeded
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Refresh access token
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        "200":
+          description: Token refreshed
+
+  /api/v1/auth/me:
+    get:
+      summary: Get current user profile
+      tags: [Authentication]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+
+  /api/v1/labs:
+    get:
+      summary: List all labs
+      tags: [Labs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated list of labs
+          headers:
+            Link:
+              schema:
+                type: string
+              description: Pagination Link headers (RFC 5988)
+            X-Total-Count:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ResponseEnvelope'
+
+  /api/v1/labs/{id}:
+    get:
+      summary: Get lab details
+      tags: [Labs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Lab details
+
+  /api/v1/labs/{id}/equipment:
+    get:
+      summary: Get lab equipment
+      tags: [Labs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of equipment
+
+  /api/v1/bookings:
+    get:
+      summary: List all bookings (lab-coordinator only)
+      tags: [Bookings]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+        - name: lab_id
+          in: query
+          schema:
+            type: integer
+        - name: booking_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Paginated list of bookings
+          headers:
+            Link:
+              schema:
+                type: string
+            X-Total-Count:
+              schema:
+                type: integer
+
+    post:
+      summary: Create a new booking
+      tags: [Bookings]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+      responses:
+        "201":
+          description: Booking created
+
+  /api/v1/bookings/my:
+    get:
+      summary: Get current user's bookings
+      tags: [Bookings]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: User's bookings
+
+  /api/v1/bookings/{id}/approve:
+    patch:
+      summary: Approve or reject a booking
+      tags: [Bookings]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveRequest'
+      responses:
+        "200":
+          description: Booking status updated
